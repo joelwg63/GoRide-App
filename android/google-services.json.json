@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "105090792290",
+    "project_id": "goride-c9c3e",
+    "storage_bucket": "goride-c9c3e.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:105090792290:android:77b2d3312a862552608a3b",
+        "android_client_info": {
+          "package_name": "com.example.hailing_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAFdG1Z41K29jCn_WXG6peZtULS1bwAc9Q"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
