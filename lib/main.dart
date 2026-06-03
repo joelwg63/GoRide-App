@@ -1,9 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 
+import 'screens/login_screen.dart';
 import 'screens/customer_home.dart';
 import 'screens/driver_home.dart';
 import 'screens/admin_home.dart';
+import 'screens/super_admin_home.dart';
+import 'screens/wallet_screen.dart';
+import 'screens/trip_history_screen.dart';
+import 'screens/settings_screen.dart';
+import 'screens/sos_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -22,6 +28,7 @@ class GoRideApp extends StatelessWidget {
       theme: ThemeData(
         primarySwatch: Colors.green,
         scaffoldBackgroundColor: const Color(0xFFFFF7FF),
+        useMaterial3: true,
       ),
       home: const SplashScreen(),
     );
@@ -44,9 +51,10 @@ class _SplashScreenState extends State<SplashScreen> {
 
     Future.delayed(const Duration(seconds: 3), () {
       if (!mounted) return;
+
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (_) => const MainNavigationScreen()),
+        MaterialPageRoute(builder: (_) => const LoginScreen()),
       );
     });
   }
@@ -63,6 +71,13 @@ class _SplashScreenState extends State<SplashScreen> {
               'assets/images/goride_logo.png',
               height: 190,
               fit: BoxFit.contain,
+              errorBuilder: (context, error, stackTrace) {
+                return const Icon(
+                  Icons.local_taxi,
+                  color: Colors.green,
+                  size: 120,
+                );
+              },
             ),
             const SizedBox(height: 20),
             const Text(
@@ -88,7 +103,9 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 }
 
-// ================= MAIN NAVIGATION =================
+// ================= MAIN NAVIGATION DEMO =================
+// This screen is kept for testing/demo access.
+// Real app flow is now SplashScreen -> LoginScreen.
 
 class MainNavigationScreen extends StatefulWidget {
   const MainNavigationScreen({super.key});
@@ -104,6 +121,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     CustomerHome(),
     DriverHome(),
     AdminHome(),
+    SuperAdminHome(),
     AccountScreen(),
   ];
 
@@ -111,6 +129,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     "GoRide Customer",
     "GoRide Driver",
     "GoRide Admin",
+    "GoRide Super Admin",
     "Account",
   ];
 
@@ -140,6 +159,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
             icon: Icon(Icons.admin_panel_settings),
             label: "Admin",
           ),
+          BottomNavigationBarItem(icon: Icon(Icons.security), label: "Super"),
           BottomNavigationBarItem(icon: Icon(Icons.person), label: "Account"),
         ],
       ),
@@ -152,6 +172,10 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
 class AccountScreen extends StatelessWidget {
   const AccountScreen({super.key});
 
+  void openPage(BuildContext context, Widget page) {
+    Navigator.push(context, MaterialPageRoute(builder: (_) => page));
+  }
+
   @override
   Widget build(BuildContext context) {
     return ListView(
@@ -160,7 +184,17 @@ class AccountScreen extends StatelessWidget {
         Center(
           child: Column(
             children: [
-              Image.asset('assets/images/goride_logo.png', height: 110),
+              Image.asset(
+                'assets/images/goride_logo.png',
+                height: 110,
+                errorBuilder: (context, error, stackTrace) {
+                  return const Icon(
+                    Icons.local_taxi,
+                    color: Colors.green,
+                    size: 80,
+                  );
+                },
+              ),
               const SizedBox(height: 8),
               const Text(
                 "GoRide Account",
@@ -184,11 +218,79 @@ class AccountScreen extends StatelessWidget {
         accountTile(Icons.payment, "Payments", "Cash, M-Pesa, Card, Binance"),
         accountTile(Icons.card_giftcard, "Promotions", "Discounts and rewards"),
         accountTile(Icons.security, "Safety", "SOS and trusted contacts"),
-        accountTile(Icons.location_on, "Saved Places", "Home, work, favorites"),
-        accountTile(Icons.history, "My Rides", "Past and active trips"),
-        accountTile(Icons.wallet, "Wallet", "Balance and transactions"),
+
+        Card(
+          child: ListTile(
+            leading: const Icon(Icons.sos, color: Colors.red),
+            title: const Text(
+              "SOS",
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            subtitle: const Text("Emergency assistance"),
+            trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+            onTap: () => openPage(context, const SosScreen()),
+          ),
+        ),
+
+        Card(
+          child: ListTile(
+            leading: const Icon(Icons.history, color: Colors.green),
+            title: const Text(
+              "Trip History",
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            subtitle: const Text("Past and active trips"),
+            trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+            onTap: () => openPage(context, const TripHistoryScreen()),
+          ),
+        ),
+
+        Card(
+          child: ListTile(
+            leading: const Icon(
+              Icons.account_balance_wallet,
+              color: Colors.green,
+            ),
+            title: const Text(
+              "Wallet",
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            subtitle: const Text("Balance and transactions"),
+            trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+            onTap: () => openPage(context, const WalletScreen()),
+          ),
+        ),
+
         accountTile(Icons.support_agent, "Support", "Help and complaints"),
-        accountTile(Icons.settings, "Settings", "Language and app settings"),
+
+        Card(
+          child: ListTile(
+            leading: const Icon(Icons.settings, color: Colors.green),
+            title: const Text(
+              "Settings",
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            subtitle: const Text("Language and app settings"),
+            trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+            onTap: () => openPage(context, const SettingsScreen()),
+          ),
+        ),
+
+        const SizedBox(height: 20),
+
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+          onPressed: () {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (_) => const LoginScreen()),
+            );
+          },
+          child: const Text(
+            "Logout / Back to Login",
+            style: TextStyle(color: Colors.white),
+          ),
+        ),
       ],
     );
   }

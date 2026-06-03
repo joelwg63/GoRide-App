@@ -20,6 +20,9 @@ class _CustomerHomeState extends State<CustomerHome> {
   final double distanceKm = 8.0;
   final int customerTripCount = 0;
 
+  final String customerName = "Joel";
+  final String customerPhone = "0700000000";
+
   final List<Map<String, dynamic>> rides = [
     {
       "name": "Bike",
@@ -28,6 +31,7 @@ class _CustomerHomeState extends State<CustomerHome> {
       "perKm": 30.0,
       "tag": "Cheapest",
       "ev": false,
+      "serviceType": "normal",
     },
     {
       "name": "Electric Bike",
@@ -36,6 +40,7 @@ class _CustomerHomeState extends State<CustomerHome> {
       "perKm": 35.0,
       "tag": "Eco Friendly",
       "ev": true,
+      "serviceType": "normal",
     },
     {
       "name": "Economy Car",
@@ -44,6 +49,7 @@ class _CustomerHomeState extends State<CustomerHome> {
       "perKm": 50.0,
       "tag": "Recommended",
       "ev": false,
+      "serviceType": "normal",
     },
     {
       "name": "Electric Car",
@@ -52,6 +58,7 @@ class _CustomerHomeState extends State<CustomerHome> {
       "perKm": 55.0,
       "tag": "EV Ride",
       "ev": true,
+      "serviceType": "normal",
     },
     {
       "name": "Comfort",
@@ -60,6 +67,7 @@ class _CustomerHomeState extends State<CustomerHome> {
       "perKm": 70.0,
       "tag": "Premium",
       "ev": false,
+      "serviceType": "normal",
     },
     {
       "name": "XL",
@@ -68,6 +76,34 @@ class _CustomerHomeState extends State<CustomerHome> {
       "perKm": 90.0,
       "tag": "Group Ride",
       "ev": false,
+      "serviceType": "normal",
+    },
+    {
+      "name": "Chauffeur - 1 Hour",
+      "icon": Icons.badge,
+      "base": 800.0,
+      "perKm": 0.0,
+      "tag": "Hire trusted driver",
+      "ev": false,
+      "serviceType": "chauffeur",
+    },
+    {
+      "name": "Chauffeur - 1 Day",
+      "icon": Icons.work_history,
+      "base": 5000.0,
+      "perKm": 0.0,
+      "tag": "Full day driver",
+      "ev": false,
+      "serviceType": "chauffeur",
+    },
+    {
+      "name": "Airport Go & Return",
+      "icon": Icons.flight_takeoff,
+      "base": 2000.0,
+      "perKm": 0.0,
+      "tag": "Own car airport service",
+      "ev": false,
+      "serviceType": "chauffeur",
     },
   ];
 
@@ -78,17 +114,22 @@ class _CustomerHomeState extends State<CustomerHome> {
     );
   }
 
+  bool get isChauffeur => selectedRideData["serviceType"] == "chauffeur";
+
   double fareFor(Map<String, dynamic> ride) {
-    return ride["base"] + (distanceKm * ride["perKm"]);
+    final double base = (ride["base"] ?? 0).toDouble();
+    final double perKm = (ride["perKm"] ?? 0).toDouble();
+    final String serviceType = ride["serviceType"] ?? "normal";
+    if (serviceType == "chauffeur") return base;
+    return base + (distanceKm * perKm);
   }
 
   double get originalFare => fareFor(selectedRideData);
-
   double get discountPercent => customerTripCount < 3 ? 30.0 : 0.0;
-
   double get discountAmount => originalFare * discountPercent / 100;
-
   double get customerPays => originalFare - discountAmount;
+  double get appCommission => originalFare * 0.18;
+  double get driverNetEarnings => originalFare * 0.82;
 
   Future<void> requestRide() async {
     if (pickupController.text.trim().isEmpty ||
@@ -103,12 +144,17 @@ class _CustomerHomeState extends State<CustomerHome> {
 
     try {
       await FirebaseFirestore.instance.collection("ride_requests").add({
-        "customerName": "Joel",
+        "customerName": customerName,
+        "customerPhone": customerPhone,
         "pickup": pickupController.text.trim(),
         "destination": destinationController.text.trim(),
-        "distanceKm": distanceKm,
+        "distanceKm": isChauffeur ? 0 : distanceKm,
 
         "selectedVehicleCategory": selectedRide,
+        "serviceType": selectedRideData["serviceType"],
+        "isChauffeur": isChauffeur,
+        "customerOwnsCar": isChauffeur,
+        "driverHasCar": !isChauffeur,
         "isEV": selectedRideData["ev"],
         "paymentMethod": selectedPayment,
 
@@ -120,8 +166,8 @@ class _CustomerHomeState extends State<CustomerHome> {
         "gorideCoversDiscount": discountAmount,
 
         "appCommissionPercent": 18,
-        "appCommissionAmount": originalFare * 0.18,
-        "driverNetEarnings": originalFare * 0.82,
+        "appCommissionAmount": appCommission,
+        "driverNetEarnings": driverNetEarnings,
 
         "waitingFreeMinutes": 5,
         "waitingChargePerMinute": 30,
@@ -129,14 +175,22 @@ class _CustomerHomeState extends State<CustomerHome> {
         "waitingExtraFare": 0,
         "parkingFee": 0,
         "tollFee": 0,
+        "deadMileageFee": 0,
         "totalFare": customerPays,
 
-        "assignedDriverId": "demo_driver_001",
-        "assignedDriverName": "John Driver",
+        "assignedDriverId": "",
+        "assignedDriverName": "",
+        "driverId": "",
+        "driverName": "",
+        "driverPhone": "",
 
         "status": "pending",
+        "customerCanViewDriverDetails": false,
+        "driverCanViewCustomerDetails": false,
         "driverMovementStatus": "Waiting for driver to accept",
-        "customerNotice": "Ride requested. Waiting for driver.",
+        "customerNotice": isChauffeur
+            ? "Chauffeur request sent. Waiting for a trusted GoRide driver."
+            : "Ride requested. Waiting for driver.",
         "createdAt": FieldValue.serverTimestamp(),
       });
 
@@ -145,7 +199,7 @@ class _CustomerHomeState extends State<CustomerHome> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            "Ride requested. You pay KES ${customerPays.toStringAsFixed(0)}",
+            "$selectedRide requested. You pay KES ${customerPays.toStringAsFixed(0)}",
           ),
         ),
       );
@@ -157,6 +211,122 @@ class _CustomerHomeState extends State<CustomerHome> {
     }
 
     if (mounted) setState(() => loading = false);
+  }
+
+  Future<void> rateDriver(String requestId) async {
+    int rating = 5;
+    final commentController = TextEditingController();
+
+    await showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text("Rate Driver"),
+          content: StatefulBuilder(
+            builder: (context, setDialogState) {
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  DropdownButtonFormField<int>(
+                    initialValue: rating,
+                    decoration: const InputDecoration(
+                      labelText: "Rating",
+                      border: OutlineInputBorder(),
+                    ),
+                    items: const [
+                      DropdownMenuItem(value: 5, child: Text("5 Stars")),
+                      DropdownMenuItem(value: 4, child: Text("4 Stars")),
+                      DropdownMenuItem(value: 3, child: Text("3 Stars")),
+                      DropdownMenuItem(value: 2, child: Text("2 Stars")),
+                      DropdownMenuItem(value: 1, child: Text("1 Star")),
+                    ],
+                    onChanged: (value) =>
+                        setDialogState(() => rating = value ?? 5),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: commentController,
+                    maxLines: 3,
+                    decoration: const InputDecoration(
+                      labelText: "Comment driver",
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text("Cancel"),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                await FirebaseFirestore.instance
+                    .collection("ride_requests")
+                    .doc(requestId)
+                    .update({
+                      "customerRatingToDriver": rating,
+                      "customerCommentToDriver": commentController.text.trim(),
+                      "customerRatedDriverAt": FieldValue.serverTimestamp(),
+                    });
+                if (dialogContext.mounted) Navigator.pop(dialogContext);
+              },
+              child: const Text("Submit"),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> tipDriver(String requestId) async {
+    final tipController = TextEditingController(text: "100");
+
+    await showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text("Tip Driver"),
+          content: TextField(
+            controller: tipController,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(
+              labelText: "Tip amount KES",
+              border: OutlineInputBorder(),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text("Cancel"),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final double tip =
+                    double.tryParse(tipController.text.trim()) ?? 0;
+                await FirebaseFirestore.instance
+                    .collection("ride_requests")
+                    .doc(requestId)
+                    .update({
+                      "customerTipAmount": tip,
+                      "customerTippedDriverAt": FieldValue.serverTimestamp(),
+                    });
+                if (dialogContext.mounted) Navigator.pop(dialogContext);
+              },
+              child: const Text("Send Tip"),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void callDriver(String phone) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text("Call driver: $phone")));
   }
 
   void openSOS() {
@@ -187,6 +357,7 @@ class _CustomerHomeState extends State<CustomerHome> {
               children: [
                 mapHeader(),
                 promoBanner(),
+                chauffeurBanner(),
                 whereToCard(),
                 savedPlaces(),
                 if (showRideOptions) rideOptions(),
@@ -196,7 +367,6 @@ class _CustomerHomeState extends State<CustomerHome> {
               ],
             ),
           ),
-
           Positioned(
             right: 14,
             top: 14,
@@ -210,7 +380,6 @@ class _CustomerHomeState extends State<CustomerHome> {
               ),
             ),
           ),
-
           if (showRideOptions) bottomRequestBar(),
         ],
       ),
@@ -221,7 +390,7 @@ class _CustomerHomeState extends State<CustomerHome> {
     return Container(
       height: 220,
       width: double.infinity,
-      decoration: BoxDecoration(color: Colors.green.shade50),
+      color: Colors.green.shade50,
       child: Stack(
         children: [
           Center(
@@ -256,9 +425,7 @@ class _CustomerHomeState extends State<CustomerHome> {
             right: 12,
             child: ElevatedButton.icon(
               style: ElevatedButton.styleFrom(backgroundColor: Colors.white),
-              onPressed: () {
-                pickupController.text = "Current Location";
-              },
+              onPressed: () => pickupController.text = "Current Location",
               icon: const Icon(Icons.my_location, color: Colors.green),
               label: const Text(
                 "Use current location",
@@ -294,9 +461,32 @@ class _CustomerHomeState extends State<CustomerHome> {
     );
   }
 
+  Widget chauffeurBanner() {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 12),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.green.shade100,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: const Row(
+        children: [
+          Icon(Icons.badge, color: Colors.green),
+          SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              "New: Hire a trusted GoRide driver for your own car.",
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget whereToCard() {
     return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 12),
+      margin: const EdgeInsets.all(12),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Padding(
         padding: const EdgeInsets.all(12),
@@ -334,9 +524,7 @@ class _CustomerHomeState extends State<CustomerHome> {
               height: 45,
               child: ElevatedButton(
                 style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-                onPressed: () {
-                  setState(() => showRideOptions = true);
-                },
+                onPressed: () => setState(() => showRideOptions = true),
                 child: const Text(
                   "SHOW RIDES",
                   style: TextStyle(color: Colors.white),
@@ -351,7 +539,7 @@ class _CustomerHomeState extends State<CustomerHome> {
 
   Widget savedPlaces() {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12),
       child: Row(
         children: [
           Expanded(child: savedPlaceTile(Icons.home, "Home")),
@@ -381,7 +569,7 @@ class _CustomerHomeState extends State<CustomerHome> {
           const Align(
             alignment: Alignment.centerLeft,
             child: Text(
-              "Choose your ride",
+              "Choose your GoRide service",
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
           ),
@@ -390,6 +578,7 @@ class _CustomerHomeState extends State<CustomerHome> {
             final bool selected = selectedRide == ride["name"];
             final double price = fareFor(ride);
             final bool isEV = ride["ev"] == true;
+            final bool chauffeur = ride["serviceType"] == "chauffeur";
 
             return Card(
               color: selected ? Colors.green.shade50 : Colors.white,
@@ -403,7 +592,7 @@ class _CustomerHomeState extends State<CustomerHome> {
               child: ListTile(
                 leading: Icon(
                   ride["icon"],
-                  color: isEV ? Colors.green : Colors.black87,
+                  color: isEV || chauffeur ? Colors.green : Colors.black87,
                   size: 32,
                 ),
                 title: Row(
@@ -414,25 +603,14 @@ class _CustomerHomeState extends State<CustomerHome> {
                         style: const TextStyle(fontWeight: FontWeight.bold),
                       ),
                     ),
-                    if (isEV)
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 7,
-                          vertical: 3,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.green,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: const Text(
-                          "⚡ EV",
-                          style: TextStyle(color: Colors.white, fontSize: 11),
-                        ),
-                      ),
+                    if (isEV) badge("⚡ EV"),
+                    if (chauffeur) badge("DRIVER"),
                   ],
                 ),
                 subtitle: Text(
-                  "${ride["tag"]} • ${distanceKm.toStringAsFixed(1)} KM",
+                  chauffeur
+                      ? "${ride["tag"]} • Customer own car"
+                      : "${ride["tag"]} • ${distanceKm.toStringAsFixed(1)} KM",
                 ),
                 trailing: Text(
                   "KES ${price.toStringAsFixed(0)}",
@@ -441,13 +619,26 @@ class _CustomerHomeState extends State<CustomerHome> {
                     color: Colors.green,
                   ),
                 ),
-                onTap: () {
-                  setState(() => selectedRide = ride["name"]);
-                },
+                onTap: () => setState(() => selectedRide = ride["name"]),
               ),
             );
           }),
         ],
+      ),
+    );
+  }
+
+  Widget badge(String text) {
+    return Container(
+      margin: const EdgeInsets.only(left: 5),
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      decoration: BoxDecoration(
+        color: Colors.green,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Text(
+        text,
+        style: const TextStyle(color: Colors.white, fontSize: 10),
       ),
     );
   }
@@ -458,7 +649,7 @@ class _CustomerHomeState extends State<CustomerHome> {
       child: Padding(
         padding: const EdgeInsets.all(12),
         child: DropdownButtonFormField<String>(
-          value: selectedPayment,
+          initialValue: selectedPayment,
           decoration: const InputDecoration(
             labelText: "Payment Method",
             prefixIcon: Icon(Icons.payment),
@@ -473,9 +664,7 @@ class _CustomerHomeState extends State<CustomerHome> {
               child: Text("Binance Pay / Crypto"),
             ),
           ],
-          onChanged: (value) {
-            setState(() => selectedPayment = value!);
-          },
+          onChanged: (value) => setState(() => selectedPayment = value!),
         ),
       ),
     );
@@ -494,9 +683,11 @@ class _CustomerHomeState extends State<CustomerHome> {
             const Divider(),
             moneyLine("You pay", customerPays, big: true),
             const SizedBox(height: 6),
-            const Text(
-              "GoRide covers the discount so driver receives the full original fare.",
-              style: TextStyle(fontSize: 12, color: Colors.black54),
+            Text(
+              isChauffeur
+                  ? "A verified GoRide driver will drive your own car."
+                  : "GoRide covers the discount so driver receives the full original fare.",
+              style: const TextStyle(fontSize: 12, color: Colors.black54),
             ),
           ],
         ),
@@ -529,16 +720,76 @@ class _CustomerHomeState extends State<CustomerHome> {
               ),
               ...snapshot.data!.docs.map((doc) {
                 final data = doc.data() as Map<String, dynamic>;
+                final String status = data["status"] ?? "pending";
+                final num amount =
+                    data["customerPayableFare"] ?? data["totalFare"] ?? 0;
+                final bool acceptedOrLater =
+                    status != "pending" && status != "rejected";
+                final bool completed = status == "completed";
+                final String driverName = data["driverName"] ?? "";
+                final String driverPhone = data["driverPhone"] ?? "";
+
                 return Card(
-                  child: ListTile(
-                    title: Text(
-                      "${data["selectedVehicleCategory"] ?? "Ride"} • ${data["status"] ?? "pending"}",
-                    ),
-                    subtitle: Text(
-                      "${data["pickup"] ?? ""} → ${data["destination"] ?? ""}",
-                    ),
-                    trailing: Text(
-                      "KES ${(data["customerPayableFare"] ?? data["totalFare"] ?? 0).toStringAsFixed(0)}",
+                  child: Padding(
+                    padding: const EdgeInsets.all(8),
+                    child: Column(
+                      children: [
+                        ListTile(
+                          title: Text(
+                            "${data["selectedVehicleCategory"] ?? "Ride"} • $status",
+                          ),
+                          subtitle: Text(
+                            "${data["pickup"] ?? ""} → ${data["destination"] ?? ""}",
+                          ),
+                          trailing: Text(
+                            "KES ${amount.toDouble().toStringAsFixed(0)}",
+                          ),
+                        ),
+                        if (acceptedOrLater && driverName.isNotEmpty) ...[
+                          const Divider(),
+                          rowText("Driver", driverName),
+                          rowText("Phone", driverPhone),
+                          SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton(
+                              onPressed: () => callDriver(driverPhone),
+                              child: const Text("CALL DRIVER"),
+                            ),
+                          ),
+                        ],
+                        if (completed) ...[
+                          const Divider(),
+                          rowText(
+                            "Final Total",
+                            "KES ${(data["originalTotalFare"] ?? 0).toDouble().toStringAsFixed(0)}",
+                          ),
+                          rowText(
+                            "GoRide Discount",
+                            "KES ${(data["customerDiscountAmount"] ?? 0).toDouble().toStringAsFixed(0)}",
+                          ),
+                          rowText(
+                            "You Paid",
+                            "KES ${(data["customerPayableFare"] ?? 0).toDouble().toStringAsFixed(0)}",
+                          ),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: ElevatedButton(
+                                  onPressed: () => tipDriver(doc.id),
+                                  child: const Text("TIP DRIVER"),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: ElevatedButton(
+                                  onPressed: () => rateDriver(doc.id),
+                                  child: const Text("RATE DRIVER"),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ],
                     ),
                   ),
                 );
@@ -547,6 +798,24 @@ class _CustomerHomeState extends State<CustomerHome> {
           ),
         );
       },
+    );
+  }
+
+  Widget rowText(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(
+        children: [
+          Expanded(child: Text(label)),
+          Expanded(
+            child: Text(
+              value,
+              textAlign: TextAlign.right,
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
