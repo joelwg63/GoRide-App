@@ -8,7 +8,14 @@ plugins {
 android {
     namespace = "com.example.hailing_app"
     compileSdk = flutter.compileSdkVersion
-    ndkVersion = flutter.ndkVersion
+
+    defaultConfig {
+        applicationId = "com.example.hailing_app"
+        minSdk = flutter.minSdkVersion
+        targetSdk = flutter.targetSdkVersion
+        versionCode = flutter.versionCode
+        versionName = flutter.versionName
+    }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -17,14 +24,6 @@ android {
 
     kotlinOptions {
         jvmTarget = "17"
-    }
-
-    defaultConfig {
-        applicationId = "com.example.hailing_app"
-        minSdk = flutter.minSdkVersion
-        targetSdk = flutter.targetSdkVersion
-        versionCode = flutter.versionCode
-        versionName = flutter.versionName
     }
 
     buildTypes {
