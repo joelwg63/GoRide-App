@@ -23,6 +23,26 @@ class _CustomerHomeState extends State<CustomerHome> {
   final String customerName = "Joel";
   final String customerPhone = "0700000000";
 
+  // Later this will come from customer registration profile.
+  final String customerCountry = "Kenya";
+
+  final double usdRate = 130.0; // 1 USD = 130 KES, adjustable later from Admin.
+  final int waitingFreeMinutes = 4;
+  final double waitingChargePerMinute = 30;
+  final int deadMileageFreeMinutes = 5;
+  final double deadMileageChargePerMinute = 20;
+
+  bool get isForeignCustomer => customerCountry.toLowerCase() != "kenya";
+
+  String money(double kes) {
+    if (!isForeignCustomer) {
+      return "KES ${kes.toStringAsFixed(0)}";
+    }
+
+    final usd = kes / usdRate;
+    return "KES ${kes.toStringAsFixed(0)} / USD ${usd.toStringAsFixed(2)}";
+  }
+
   final List<Map<String, dynamic>> rides = [
     {
       "name": "Bike",
@@ -120,7 +140,9 @@ class _CustomerHomeState extends State<CustomerHome> {
     final double base = (ride["base"] ?? 0).toDouble();
     final double perKm = (ride["perKm"] ?? 0).toDouble();
     final String serviceType = ride["serviceType"] ?? "normal";
+
     if (serviceType == "chauffeur") return base;
+
     return base + (distanceKm * perKm);
   }
 
@@ -146,6 +168,11 @@ class _CustomerHomeState extends State<CustomerHome> {
       await FirebaseFirestore.instance.collection("ride_requests").add({
         "customerName": customerName,
         "customerPhone": customerPhone,
+        "customerCountry": customerCountry,
+        "customerIsForeign": isForeignCustomer,
+        "currencyBase": "KES",
+        "usdRate": usdRate,
+
         "pickup": pickupController.text.trim(),
         "destination": destinationController.text.trim(),
         "distanceKm": isChauffeur ? 0 : distanceKm,
@@ -163,19 +190,29 @@ class _CustomerHomeState extends State<CustomerHome> {
         "customerDiscountPercent": discountPercent,
         "customerDiscountAmount": discountAmount,
         "customerPayableFare": customerPays,
+        "customerPayableFareUsd": customerPays / usdRate,
         "gorideCoversDiscount": discountAmount,
 
         "appCommissionPercent": 18,
         "appCommissionAmount": appCommission,
         "driverNetEarnings": driverNetEarnings,
 
-        "waitingFreeMinutes": 5,
-        "waitingChargePerMinute": 30,
+        "waitingFreeMinutes": waitingFreeMinutes,
+        "waitingChargePerMinute": waitingChargePerMinute,
         "waitingMinutes": 0,
-        "waitingExtraFare": 0,
+        "chargeableWaitingMinutes": 0,
+        "waitingFee": 0,
+
+        "deadMileageFreeMinutes": deadMileageFreeMinutes,
+        "deadMileageChargePerMinute": deadMileageChargePerMinute,
+        "deadMileageMinutes": 0,
+        "chargeableDeadMileageMinutes": 0,
+        "deadMileageFee": 0,
+
         "parkingFee": 0,
         "tollFee": 0,
-        "deadMileageFee": 0,
+        "extraRouteFee": 0,
+        "wrongDropOffFee": 0,
         "totalFare": customerPays,
 
         "assignedDriverId": "",
@@ -191,17 +228,15 @@ class _CustomerHomeState extends State<CustomerHome> {
         "customerNotice": isChauffeur
             ? "Chauffeur request sent. Waiting for a trusted GoRide driver."
             : "Ride requested. Waiting for driver.",
+        "fareRulesNotice":
+            "Waiting fee starts after 4 minutes at pickup. Dead mileage may start after 5 minutes in traffic, blocked access, wrong pickup, wrong drop-off, or bad route from main road.",
         "createdAt": FieldValue.serverTimestamp(),
       });
 
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            "$selectedRide requested. You pay KES ${customerPays.toStringAsFixed(0)}",
-          ),
-        ),
+        SnackBar(content: Text("$selectedRide requested. You pay ${money(customerPays)}")),
       );
     } catch (e) {
       if (!mounted) return;
@@ -271,6 +306,7 @@ class _CustomerHomeState extends State<CustomerHome> {
                       "customerCommentToDriver": commentController.text.trim(),
                       "customerRatedDriverAt": FieldValue.serverTimestamp(),
                     });
+
                 if (dialogContext.mounted) Navigator.pop(dialogContext);
               },
               child: const Text("Submit"),
@@ -306,13 +342,16 @@ class _CustomerHomeState extends State<CustomerHome> {
               onPressed: () async {
                 final double tip =
                     double.tryParse(tipController.text.trim()) ?? 0;
+
                 await FirebaseFirestore.instance
                     .collection("ride_requests")
                     .doc(requestId)
                     .update({
                       "customerTipAmount": tip,
+                      "customerTipAmountUsd": tip / usdRate,
                       "customerTippedDriverAt": FieldValue.serverTimestamp(),
                     });
+
                 if (dialogContext.mounted) Navigator.pop(dialogContext);
               },
               child: const Text("Send Tip"),
@@ -360,6 +399,7 @@ class _CustomerHomeState extends State<CustomerHome> {
                 chauffeurBanner(),
                 whereToCard(),
                 savedPlaces(),
+                fareRulesCard(),
                 if (showRideOptions) rideOptions(),
                 if (showRideOptions) paymentCard(),
                 if (showRideOptions) fareBreakdown(),
@@ -561,6 +601,38 @@ class _CustomerHomeState extends State<CustomerHome> {
     );
   }
 
+  Widget fareRulesCard() {
+    return Card(
+      margin: const EdgeInsets.all(12),
+      color: Colors.orange.shade50,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              "Important Fare Notice",
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                color: Colors.orange,
+                fontSize: 16,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              "• Waiting fee starts after $waitingFreeMinutes minutes at pickup.\n"
+              "• Waiting fee: ${money(waitingChargePerMinute)} per minute.\n"
+              "• Dead mileage may start after $deadMileageFreeMinutes minutes in traffic jam, blocked access, wrong pickup, wrong drop-off, or bad route from main road.\n"
+              "• Foreign customers see price in KES and USD.\n"
+              "• Final fare may change if route, waiting time, traffic delay, or destination changes.",
+              style: const TextStyle(fontSize: 13, color: Colors.black87),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget rideOptions() {
     return Padding(
       padding: const EdgeInsets.all(12),
@@ -613,10 +685,12 @@ class _CustomerHomeState extends State<CustomerHome> {
                       : "${ride["tag"]} • ${distanceKm.toStringAsFixed(1)} KM",
                 ),
                 trailing: Text(
-                  "KES ${price.toStringAsFixed(0)}",
+                  money(price),
+                  textAlign: TextAlign.right,
                   style: const TextStyle(
                     fontWeight: FontWeight.bold,
                     color: Colors.green,
+                    fontSize: 12,
                   ),
                 ),
                 onTap: () => setState(() => selectedRide = ride["name"]),
@@ -728,6 +802,10 @@ class _CustomerHomeState extends State<CustomerHome> {
                 final bool completed = status == "completed";
                 final String driverName = data["driverName"] ?? "";
                 final String driverPhone = data["driverPhone"] ?? "";
+                final String notice = data["customerNotice"] ?? "";
+                final num waitingFee = data["waitingFee"] ?? 0;
+                final num deadMileageFee = data["deadMileageFee"] ?? 0;
+                final num extraRouteFee = data["extraRouteFee"] ?? 0;
 
                 return Card(
                   child: Padding(
@@ -742,9 +820,23 @@ class _CustomerHomeState extends State<CustomerHome> {
                             "${data["pickup"] ?? ""} → ${data["destination"] ?? ""}",
                           ),
                           trailing: Text(
-                            "KES ${amount.toDouble().toStringAsFixed(0)}",
+                            money(amount.toDouble()),
+                            textAlign: TextAlign.right,
                           ),
                         ),
+                        if (notice.isNotEmpty)
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: Colors.green.shade50,
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Text(
+                              notice,
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                          ),
                         if (acceptedOrLater && driverName.isNotEmpty) ...[
                           const Divider(),
                           rowText("Driver", driverName),
@@ -757,19 +849,36 @@ class _CustomerHomeState extends State<CustomerHome> {
                             ),
                           ),
                         ],
+                        if (waitingFee > 0 ||
+                            deadMileageFee > 0 ||
+                            extraRouteFee > 0) ...[
+                          const Divider(),
+                          rowText("Waiting Fee", money(waitingFee.toDouble())),
+                          rowText(
+                            "Dead Mileage",
+                            money(deadMileageFee.toDouble()),
+                          ),
+                          rowText("Extra Route", money(extraRouteFee.toDouble())),
+                        ],
                         if (completed) ...[
                           const Divider(),
                           rowText(
                             "Final Total",
-                            "KES ${(data["originalTotalFare"] ?? 0).toDouble().toStringAsFixed(0)}",
+                            money(
+                              (data["originalTotalFare"] ?? 0).toDouble(),
+                            ),
                           ),
                           rowText(
                             "GoRide Discount",
-                            "KES ${(data["customerDiscountAmount"] ?? 0).toDouble().toStringAsFixed(0)}",
+                            money(
+                              (data["customerDiscountAmount"] ?? 0).toDouble(),
+                            ),
                           ),
                           rowText(
                             "You Paid",
-                            "KES ${(data["customerPayableFare"] ?? 0).toDouble().toStringAsFixed(0)}",
+                            money(
+                              (data["customerPayableFare"] ?? 0).toDouble(),
+                            ),
                           ),
                           Row(
                             children: [
@@ -835,7 +944,7 @@ class _CustomerHomeState extends State<CustomerHome> {
             children: [
               Expanded(
                 child: Text(
-                  "$selectedPayment • KES ${customerPays.toStringAsFixed(0)}",
+                  "$selectedPayment • ${money(customerPays)}",
                   style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
               ),
@@ -867,9 +976,8 @@ class _CustomerHomeState extends State<CustomerHome> {
       children: [
         Text(label),
         Text(
-          amount < 0
-              ? "- KES ${amount.abs().toStringAsFixed(0)}"
-              : "KES ${amount.toStringAsFixed(0)}",
+          amount < 0 ? "- ${money(amount.abs())}" : money(amount),
+          textAlign: TextAlign.right,
           style: TextStyle(
             fontSize: big ? 18 : 14,
             fontWeight: big ? FontWeight.bold : FontWeight.normal,

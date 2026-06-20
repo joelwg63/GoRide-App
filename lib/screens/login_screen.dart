@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'customer_home.dart';
 import 'driver_home.dart';
@@ -15,15 +17,15 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   String selectedRole = "Customer";
-  String loginMethod = "Email";
   String selectedCountryCode = "+254";
 
   bool faceConfirmed = false;
   bool fingerprintConfirmed = false;
+  bool loading = false;
 
   final emailController = TextEditingController();
+  final passwordController = TextEditingController();
   final phoneController = TextEditingController();
-  final codeController = TextEditingController();
   final jobCardController = TextEditingController();
 
   final List<Map<String, String>> countries = [
@@ -42,14 +44,17 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   void dispose() {
     emailController.dispose();
+    passwordController.dispose();
     phoneController.dispose();
-    codeController.dispose();
     jobCardController.dispose();
     super.dispose();
   }
 
   void openPage(Widget page) {
-    Navigator.push(context, MaterialPageRoute(builder: (_) => page));
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (_) => page),
+    );
   }
 
   Widget roleHomePage() {
@@ -59,25 +64,22 @@ class _LoginScreenState extends State<LoginScreen> {
     return const CustomerHome();
   }
 
+  String roleCollection() {
+    if (selectedRole == "Driver") return "drivers";
+    if (selectedRole == "Admin") return "admins";
+    if (selectedRole == "Super Admin") return "admins";
+    return "customers";
+  }
+
+  String expectedRole() {
+    if (selectedRole == "Driver") return "driver";
+    if (selectedRole == "Admin") return "admin";
+    if (selectedRole == "Super Admin") return "super_admin";
+    return "customer";
+  }
+
   bool get isStaffLogin =>
       selectedRole == "Admin" || selectedRole == "Super Admin";
-
-  void sendCode() {
-    final target = loginMethod == "Email"
-        ? emailController.text.trim()
-        : "$selectedCountryCode${phoneController.text.trim()}";
-
-    if (target.isEmpty || target == selectedCountryCode) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Enter email or phone first")),
-      );
-      return;
-    }
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text("Verification code sent to $target")),
-    );
-  }
 
   void confirmFace() {
     setState(() => faceConfirmed = true);
@@ -93,7 +95,17 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  void loginUser() {
+  Future<void> loginUser() async {
+    final email = emailController.text.trim();
+    final password = passwordController.text.trim();
+
+    if (email.isEmpty || password.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Enter email and password")),
+      );
+      return;
+    }
+
     if (isStaffLogin && jobCardController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("Enter GoRide Job Card Number")),
@@ -113,14 +125,88 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
 
-    if (codeController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text("Enter verification code")));
-      return;
+    setState(() => loading = true);
+
+    try {
+      final credential = await FirebaseAuth.instance.signInWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+
+      final uid = credential.user!.uid;
+
+      final doc = await FirebaseFirestore.instance
+          .collection(roleCollection())
+          .doc(uid)
+          .get();
+
+      if (!doc.exists) {
+        await FirebaseAuth.instance.signOut();
+        throw Exception("No $selectedRole profile found in Firestore.");
+      }
+
+      final data = doc.data() ?? {};
+      final role = (data["role"] ?? "").toString();
+      final accountStatus = (data["accountStatus"] ?? "active").toString();
+      final jobCard = (data["jobCardNumber"] ?? "").toString();
+
+      if (role != expectedRole()) {
+        await FirebaseAuth.instance.signOut();
+        throw Exception("This account is not registered as $selectedRole.");
+      }
+
+      if (accountStatus == "blocked" || accountStatus == "suspended") {
+        await FirebaseAuth.instance.signOut();
+        throw Exception("This account is $accountStatus.");
+      }
+
+      if (selectedRole == "Driver" && accountStatus != "active") {
+        await FirebaseAuth.instance.signOut();
+        throw Exception("Driver account is not approved yet.");
+      }
+
+      if (isStaffLogin && jobCard.isNotEmpty) {
+        final enteredJobCard = jobCardController.text.trim().toUpperCase();
+
+        if (enteredJobCard != jobCard.toUpperCase()) {
+          await FirebaseAuth.instance.signOut();
+          throw Exception("Invalid GoRide Job Card Number.");
+        }
+      }
+
+      if (!mounted) return;
+
+      Navigator.pop(context);
+      openPage(roleHomePage());
+    } on FirebaseAuthException catch (e) {
+      String message = "Login failed";
+
+      if (e.code == "user-not-found") {
+        message = "No account found with this email";
+      } else if (e.code == "wrong-password" ||
+          e.code == "invalid-credential") {
+        message = "Wrong email or password";
+      } else if (e.code == "invalid-email") {
+        message = "Invalid email address";
+      }
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message), backgroundColor: Colors.red),
+      );
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.toString().replaceAll("Exception: ", "")),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
 
-    openPage(roleHomePage());
+    if (mounted) setState(() => loading = false);
   }
 
   void showLoginForm() {
@@ -128,7 +214,7 @@ class _LoginScreenState extends State<LoginScreen> {
       faceConfirmed = false;
       fingerprintConfirmed = false;
       jobCardController.clear();
-      codeController.clear();
+      passwordController.clear();
     });
 
     showModalBottomSheet(
@@ -163,7 +249,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     const SizedBox(height: 15),
 
                     DropdownButtonFormField<String>(
-                      initialValue: selectedRole,
+                      value: selectedRole,
                       decoration: const InputDecoration(
                         labelText: "Login As",
                         border: OutlineInputBorder(),
@@ -177,7 +263,10 @@ class _LoginScreenState extends State<LoginScreen> {
                           value: "Driver",
                           child: Text("Driver"),
                         ),
-                        DropdownMenuItem(value: "Admin", child: Text("Admin")),
+                        DropdownMenuItem(
+                          value: "Admin",
+                          child: Text("Admin"),
+                        ),
                         DropdownMenuItem(
                           value: "Super Admin",
                           child: Text("Super Admin"),
@@ -194,68 +283,25 @@ class _LoginScreenState extends State<LoginScreen> {
 
                     const SizedBox(height: 12),
 
-                    DropdownButtonFormField<String>(
-                      initialValue: loginMethod,
+                    TextField(
+                      controller: emailController,
+                      keyboardType: TextInputType.emailAddress,
                       decoration: const InputDecoration(
-                        labelText: "Login Method",
+                        labelText: "Email Address",
                         border: OutlineInputBorder(),
                       ),
-                      items: const [
-                        DropdownMenuItem(value: "Email", child: Text("Email")),
-                        DropdownMenuItem(
-                          value: "Phone",
-                          child: Text("Phone Number"),
-                        ),
-                      ],
-                      onChanged: (value) {
-                        setSheetState(() => loginMethod = value ?? "Email");
-                      },
                     ),
 
                     const SizedBox(height: 12),
 
-                    if (loginMethod == "Email")
-                      TextField(
-                        controller: emailController,
-                        keyboardType: TextInputType.emailAddress,
-                        decoration: const InputDecoration(
-                          labelText: "Email Address",
-                          border: OutlineInputBorder(),
-                        ),
+                    TextField(
+                      controller: passwordController,
+                      obscureText: true,
+                      decoration: const InputDecoration(
+                        labelText: "Password",
+                        border: OutlineInputBorder(),
                       ),
-
-                    if (loginMethod == "Phone") ...[
-                      DropdownButtonFormField<String>(
-                        initialValue: selectedCountryCode,
-                        decoration: const InputDecoration(
-                          labelText: "Country",
-                          border: OutlineInputBorder(),
-                        ),
-                        items: countries.map((country) {
-                          return DropdownMenuItem(
-                            value: country["code"],
-                            child: Text(
-                              "${country["name"]} ${country["code"]}",
-                            ),
-                          );
-                        }).toList(),
-                        onChanged: (value) {
-                          setSheetState(
-                            () => selectedCountryCode = value ?? "+254",
-                          );
-                        },
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: phoneController,
-                        keyboardType: TextInputType.phone,
-                        decoration: InputDecoration(
-                          labelText: "Phone Number",
-                          prefixText: "$selectedCountryCode ",
-                          border: const OutlineInputBorder(),
-                        ),
-                      ),
-                    ],
+                    ),
 
                     if (staff) ...[
                       const SizedBox(height: 12),
@@ -349,28 +395,6 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                     ],
 
-                    const SizedBox(height: 12),
-
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            controller: codeController,
-                            keyboardType: TextInputType.number,
-                            decoration: const InputDecoration(
-                              labelText: "Verification Code",
-                              border: OutlineInputBorder(),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        ElevatedButton(
-                          onPressed: sendCode,
-                          child: const Text("Send Code"),
-                        ),
-                      ],
-                    ),
-
                     const SizedBox(height: 20),
 
                     SizedBox(
@@ -380,11 +404,18 @@ class _LoginScreenState extends State<LoginScreen> {
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.green,
                         ),
-                        onPressed: loginUser,
-                        child: const Text(
-                          "LOGIN",
-                          style: TextStyle(color: Colors.white, fontSize: 17),
-                        ),
+                        onPressed: loading ? null : loginUser,
+                        child: loading
+                            ? const CircularProgressIndicator(
+                                color: Colors.white,
+                              )
+                            : const Text(
+                                "LOGIN",
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 17,
+                                ),
+                              ),
                       ),
                     ),
                   ],

@@ -31,8 +31,6 @@ class _CustomerRegisterScreenState extends State<CustomerRegisterScreen> {
     {"name": "Rwanda", "code": "+250"},
     {"name": "South Africa", "code": "+27"},
     {"name": "Nigeria", "code": "+234"},
-    {"name": "UAE", "code": "+971"},
-    {"name": "India", "code": "+91"},
   ];
 
   @override
@@ -48,10 +46,9 @@ class _CustomerRegisterScreenState extends State<CustomerRegisterScreen> {
 
   void sendCode() {
     final phone = "$selectedCountryCode${phoneController.text.trim()}";
-    final email = emailController.text.trim();
 
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text("Verification code sent to $phone and $email")),
+      SnackBar(content: Text("Verification code sent to $phone")),
     );
   }
 
@@ -75,24 +72,29 @@ class _CustomerRegisterScreenState extends State<CustomerRegisterScreen> {
     }
 
     if (password != confirmPassword) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text("Passwords do not match")));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Passwords do not match")),
+      );
       return;
     }
 
     if (code.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text("Enter verification code")));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Enter verification code")),
+      );
       return;
     }
+
+    if (loading) return;
 
     setState(() => loading = true);
 
     try {
       final credential = await FirebaseAuth.instance
-          .createUserWithEmailAndPassword(email: email, password: password);
+          .createUserWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
 
       final uid = credential.user!.uid;
 
@@ -121,24 +123,20 @@ class _CustomerRegisterScreenState extends State<CustomerRegisterScreen> {
       String message = "Registration failed";
 
       if (e.code == "email-already-in-use") {
-        message = "This email is already registered";
+        message = "Email already registered";
       } else if (e.code == "weak-password") {
-        message = "Password is too weak";
+        message = "Password too weak";
       } else if (e.code == "invalid-email") {
-        message = "Invalid email address";
+        message = "Invalid email";
       }
 
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(message)));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message)),
+      );
     } catch (e) {
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text("Error: $e")));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Error: $e")),
+      );
     }
 
     if (mounted) setState(() => loading = false);
@@ -164,69 +162,47 @@ class _CustomerRegisterScreenState extends State<CustomerRegisterScreen> {
 
             const SizedBox(height: 20),
 
-            inputBox(controller: fullNameController, label: "Full Names"),
+            _input(fullNameController, "Full Name"),
 
             DropdownButtonFormField<String>(
-              initialValue: selectedCountryCode,
+              value: selectedCountryCode,
               decoration: const InputDecoration(
                 labelText: "Country Code",
                 border: OutlineInputBorder(),
               ),
-              items: countries.map((country) {
+              items: countries.map((c) {
                 return DropdownMenuItem(
-                  value: country["code"],
-                  child: Text("${country["name"]} ${country["code"]}"),
+                  value: c["code"],
+                  child: Text("${c["name"]} ${c["code"]}"),
                 );
               }).toList(),
               onChanged: (value) {
-                setState(() => selectedCountryCode = value ?? "+254");
+                setState(() => selectedCountryCode = value!);
               },
             ),
 
             const SizedBox(height: 12),
 
-            inputBox(
-              controller: phoneController,
-              label: "Phone Number",
-              keyboardType: TextInputType.phone,
-              prefixText: "$selectedCountryCode ",
-            ),
+            _input(phoneController, "Phone Number",
+                prefix: selectedCountryCode),
 
-            inputBox(
-              controller: emailController,
-              label: "Email Address",
-              keyboardType: TextInputType.emailAddress,
-            ),
+            _input(emailController, "Email Address"),
 
-            inputBox(
-              controller: passwordController,
-              label: "Password",
-              password: true,
-            ),
+            _input(passwordController, "Password", obscure: true),
 
-            inputBox(
-              controller: confirmPasswordController,
-              label: "Confirm Password",
-              password: true,
-            ),
+            _input(confirmPasswordController, "Confirm Password",
+                obscure: true),
 
             Row(
               children: [
                 Expanded(
-                  child: TextField(
-                    controller: codeController,
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
-                      labelText: "Verification Code",
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
+                  child: _input(codeController, "Verification Code"),
                 ),
                 const SizedBox(width: 8),
                 ElevatedButton(
                   onPressed: sendCode,
-                  child: const Text("Send Code"),
-                ),
+                  child: const Text("Send"),
+                )
               ],
             ),
 
@@ -236,7 +212,9 @@ class _CustomerRegisterScreenState extends State<CustomerRegisterScreen> {
               width: double.infinity,
               height: 55,
               child: ElevatedButton(
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.green,
+                ),
                 onPressed: loading ? null : createCustomerAccount,
                 child: loading
                     ? const CircularProgressIndicator(color: Colors.white)
@@ -252,22 +230,20 @@ class _CustomerRegisterScreenState extends State<CustomerRegisterScreen> {
     );
   }
 
-  Widget inputBox({
-    required TextEditingController controller,
-    required String label,
-    bool password = false,
-    TextInputType keyboardType = TextInputType.text,
-    String? prefixText,
+  Widget _input(
+    TextEditingController controller,
+    String label, {
+    bool obscure = false,
+    String? prefix,
   }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: TextField(
         controller: controller,
-        obscureText: password,
-        keyboardType: keyboardType,
+        obscureText: obscure,
         decoration: InputDecoration(
           labelText: label,
-          prefixText: prefixText,
+          prefixText: prefix != null ? "$prefix " : null,
           border: const OutlineInputBorder(),
         ),
       ),

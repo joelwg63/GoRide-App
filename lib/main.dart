@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'firebase_options.dart';
 
 import 'screens/login_screen.dart';
 import 'screens/customer_home.dart';
@@ -13,7 +14,15 @@ import 'screens/sos_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp();
+
+  try {
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+  } catch (e) {
+    debugPrint('Firebase startup skipped for now: $e');
+  }
+
   runApp(const GoRideApp());
 }
 
@@ -23,8 +32,8 @@ class GoRideApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      debugShowCheckedModeBanner: false,
       title: 'GoRide',
+      debugShowCheckedModeBanner: false,
       theme: ThemeData(
         primarySwatch: Colors.green,
         scaffoldBackgroundColor: const Color(0xFFFFF7FF),
@@ -81,7 +90,7 @@ class _SplashScreenState extends State<SplashScreen> {
             ),
             const SizedBox(height: 20),
             const Text(
-              "GoRide",
+              'GoRide',
               style: TextStyle(
                 color: Colors.white,
                 fontSize: 38,
@@ -89,7 +98,7 @@ class _SplashScreenState extends State<SplashScreen> {
               ),
             ),
             const Text(
-              "Your Ride, Your Way",
+              'Your Ride, Your Way',
               style: TextStyle(
                 color: Colors.white70,
                 fontSize: 16,
@@ -104,8 +113,6 @@ class _SplashScreenState extends State<SplashScreen> {
 }
 
 // ================= MAIN NAVIGATION DEMO =================
-// This screen is kept for testing/demo access.
-// Real app flow is now SplashScreen -> LoginScreen.
 
 class MainNavigationScreen extends StatefulWidget {
   const MainNavigationScreen({super.key});
@@ -126,11 +133,11 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   ];
 
   final List<String> titles = const [
-    "GoRide Customer",
-    "GoRide Driver",
-    "GoRide Admin",
-    "GoRide Super Admin",
-    "Account",
+    'GoRide Customer',
+    'GoRide Driver',
+    'GoRide Admin',
+    'GoRide Super Admin',
+    'Account',
   ];
 
   @override
@@ -153,14 +160,14 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
           });
         },
         items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.home), label: "Customer"),
-          BottomNavigationBarItem(icon: Icon(Icons.drive_eta), label: "Driver"),
+          BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Customer'),
+          BottomNavigationBarItem(icon: Icon(Icons.drive_eta), label: 'Driver'),
           BottomNavigationBarItem(
             icon: Icon(Icons.admin_panel_settings),
-            label: "Admin",
+            label: 'Admin',
           ),
-          BottomNavigationBarItem(icon: Icon(Icons.security), label: "Super"),
-          BottomNavigationBarItem(icon: Icon(Icons.person), label: "Account"),
+          BottomNavigationBarItem(icon: Icon(Icons.security), label: 'Super'),
+          BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Account'),
         ],
       ),
     );
@@ -197,7 +204,7 @@ class AccountScreen extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               const Text(
-                "GoRide Account",
+                'GoRide Account',
                 style: TextStyle(
                   fontSize: 24,
                   fontWeight: FontWeight.bold,
@@ -205,46 +212,41 @@ class AccountScreen extends StatelessWidget {
                 ),
               ),
               const Text(
-                "Your Ride, Your Way",
+                'Your Ride, Your Way',
                 style: TextStyle(color: Colors.black54),
               ),
             ],
           ),
         ),
-
         const SizedBox(height: 20),
-
-        accountTile(Icons.person, "Profile", "Manage your name and phone"),
-        accountTile(Icons.payment, "Payments", "Cash, M-Pesa, Card, Binance"),
-        accountTile(Icons.card_giftcard, "Promotions", "Discounts and rewards"),
-        accountTile(Icons.security, "Safety", "SOS and trusted contacts"),
-
+        accountTile(Icons.person, 'Profile', 'Manage your name and phone'),
+        accountTile(Icons.payment, 'Payments', 'Cash, M-Pesa, Card, Binance'),
+        accountTile(Icons.card_giftcard, 'Promotions', 'Discounts and rewards'),
+        accountTile(Icons.security, 'Safety', 'SOS and trusted contacts'),
         Card(
           child: ListTile(
             leading: const Icon(Icons.sos, color: Colors.red),
             title: const Text(
-              "SOS",
+              'SOS',
               style: TextStyle(fontWeight: FontWeight.bold),
             ),
-            subtitle: const Text("Emergency assistance"),
+            subtitle: const Text('Emergency assistance'),
             trailing: const Icon(Icons.arrow_forward_ios, size: 16),
             onTap: () => openPage(context, const SosScreen()),
           ),
         ),
-
         Card(
           child: ListTile(
             leading: const Icon(Icons.history, color: Colors.green),
             title: const Text(
-              "Trip History",
+              'Trip History',
               style: TextStyle(fontWeight: FontWeight.bold),
             ),
-            subtitle: const Text("Past and active trips"),
+            subtitle: const Text('Past and active trips'),
             trailing: const Icon(Icons.arrow_forward_ios, size: 16),
             onTap: () => openPage(context, const TripHistoryScreen()),
           ),
         ),
-
         Card(
           child: ListTile(
             leading: const Icon(
@@ -252,32 +254,28 @@ class AccountScreen extends StatelessWidget {
               color: Colors.green,
             ),
             title: const Text(
-              "Wallet",
+              'Wallet',
               style: TextStyle(fontWeight: FontWeight.bold),
             ),
-            subtitle: const Text("Balance and transactions"),
+            subtitle: const Text('Balance and transactions'),
             trailing: const Icon(Icons.arrow_forward_ios, size: 16),
             onTap: () => openPage(context, const WalletScreen()),
           ),
         ),
-
-        accountTile(Icons.support_agent, "Support", "Help and complaints"),
-
+        accountTile(Icons.support_agent, 'Support', 'Help and complaints'),
         Card(
           child: ListTile(
             leading: const Icon(Icons.settings, color: Colors.green),
             title: const Text(
-              "Settings",
+              'Settings',
               style: TextStyle(fontWeight: FontWeight.bold),
             ),
-            subtitle: const Text("Language and app settings"),
+            subtitle: const Text('Language and app settings'),
             trailing: const Icon(Icons.arrow_forward_ios, size: 16),
             onTap: () => openPage(context, const SettingsScreen()),
           ),
         ),
-
         const SizedBox(height: 20),
-
         ElevatedButton(
           style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
           onPressed: () {
@@ -287,7 +285,7 @@ class AccountScreen extends StatelessWidget {
             );
           },
           child: const Text(
-            "Logout / Back to Login",
+            'Logout / Back to Login',
             style: TextStyle(color: Colors.white),
           ),
         ),
