@@ -13,6 +13,10 @@ class _DriverHomeState extends State<DriverHome> {
   final String driverName = "John Driver";
   final String driverPhone = "0712345678";
 
+  // Change this driver type for testing:
+  // Car, EV, Bike, EV Bike, XL, Van, Chauffeur
+  final String driverType = "Car";
+
   bool isOnline = false;
   bool loading = false;
 
@@ -27,13 +31,11 @@ class _DriverHomeState extends State<DriverHome> {
   final double waitingChargePerMinute = 30;
   final int freeWaitingMinutes = 5;
 
-  final TextEditingController plateController = TextEditingController();
   final TextEditingController customerCommentController =
       TextEditingController();
 
   @override
   void dispose() {
-    plateController.dispose();
     customerCommentController.dispose();
     super.dispose();
   }
@@ -46,7 +48,29 @@ class _DriverHomeState extends State<DriverHome> {
   }
 
   bool isChauffeurRide(Map<String, dynamic> ride) {
-    return ride["serviceType"] == "chauffeur" || ride["isChauffeur"] == true;
+    return ride["requestedDriverType"] == "Chauffeur" ||
+        ride["serviceGroup"] == "Chauffeur";
+  }
+
+  bool canDriverReceive(Map<String, dynamic> ride) {
+    final requested = (ride["requestedDriverType"] ?? "").toString();
+    final serviceGroup = (ride["serviceGroup"] ?? "").toString();
+
+    if (driverType == requested) return true;
+
+    if (driverType == "Car" && requested == "EV") return true;
+    if (driverType == "Car" && requested == "Car") return true;
+
+    if (driverType == "Bike" && requested == "Bike") return true;
+    if (driverType == "Bike" && requested == "EV Bike") return true;
+
+    if (serviceGroup == "Food/Parcel") {
+      if (driverType == requested) return true;
+      if (requested == "Bike" && driverType == "Car") return true;
+      if (requested == "Car" && driverType == "XL") return true;
+    }
+
+    return false;
   }
 
   Future<void> updateDriverStatus(bool online) async {
@@ -67,6 +91,7 @@ class _DriverHomeState extends State<DriverHome> {
       "driverId": driverId,
       "name": driverName,
       "phone": driverPhone,
+      "driverType": driverType,
       "online": online,
       "status": online ? "online" : "offline",
       "walletBalance": walletBalance,
@@ -84,30 +109,46 @@ class _DriverHomeState extends State<DriverHome> {
   }
 
   Future<void> acceptRide(String requestId, Map<String, dynamic> ride) async {
-    final bool chauffeur = isChauffeurRide(ride);
+    final double estimatedFare = toDouble(
+      ride["estimatedFareVisibleToCustomer"] ??
+          ride["estimatedFareHiddenFromCustomer"] ??
+          ride["estimatedFareBeforeDriverAccept"] ??
+          ride["customerPayableFare"] ??
+          ride["fare"] ??
+          ride["originalFare"],
+    );
+
+    final double confirmedFare = estimatedFare;
+    final double commissionAmount = confirmedFare * commissionPercent / 100;
+    final double driverNetEarnings = confirmedFare - commissionAmount;
 
     await FirebaseFirestore.instance
         .collection("ride_requests")
         .doc(requestId)
         .update({
-          "status": "accepted",
-          "assignedDriverId": driverId,
-          "assignedDriverName": driverName,
-          "driverId": driverId,
-          "driverName": driverName,
-          "driverPhone": driverPhone,
-          "driverCanViewCustomerDetails": true,
-          "customerCanViewDriverDetails": true,
-          "acceptedAt": FieldValue.serverTimestamp(),
-          "driverEtaMinutes": chauffeur ? 10 : 8,
-          "driverDistanceToPickupKm": chauffeur ? 4.0 : 3.5,
-          "driverMovementStatus": chauffeur
-              ? "Chauffeur driver accepted job and is heading to pickup area"
-              : "Driver is heading to pickup",
-          "customerNotice": chauffeur
-              ? "A verified GoRide Chauffeur driver accepted your job. You can now contact the driver."
-              : "Driver accepted your ride. You can now contact the driver.",
-        });
+      "status": "accepted",
+      "assignedDriverId": driverId,
+      "assignedDriverName": driverName,
+      "driverId": driverId,
+      "driverName": driverName,
+      "driverPhone": driverPhone,
+      "driverType": driverType,
+      "driverCanViewCustomerDetails": true,
+      "customerCanViewDriverDetails": true,
+      "acceptedAt": FieldValue.serverTimestamp(),
+      "driverEtaMinutes": ride["serviceEtaMinutes"] ?? 5,
+      "driverDistanceToPickupKm": 3.5,
+      "confirmedFare": confirmedFare,
+      "customerPayableFare": confirmedFare,
+      "totalFare": confirmedFare,
+      "fareConfirmed": true,
+      "appCommissionPercent": commissionPercent,
+      "appCommissionAmount": commissionAmount,
+      "driverNetEarnings": driverNetEarnings,
+      "driverMovementStatus": "Driver accepted and is heading to pickup",
+      "customerNotice":
+          "Driver accepted. Confirmed fare is KES ${confirmedFare.toStringAsFixed(0)}. Please prepare before driver arrives.",
+    });
   }
 
   Future<void> rejectRide(String requestId) async {
@@ -115,223 +156,69 @@ class _DriverHomeState extends State<DriverHome> {
         .collection("ride_requests")
         .doc(requestId)
         .update({
-          "status": "rejected",
-          "rejectedBy": driverId,
-          "rejectedAt": FieldValue.serverTimestamp(),
-        });
-  }
-
-  Future<void> markArrived(String requestId, Map<String, dynamic> ride) async {
-    final bool chauffeur = isChauffeurRide(ride);
-
-    await FirebaseFirestore.instance.collection("ride_requests").doc(requestId).update({
-      "status": "arrived",
-      "arrivedAt": FieldValue.serverTimestamp(),
-      "waitingStartedAt": chauffeur ? null : FieldValue.serverTimestamp(),
-      "driverEtaMinutes": 0,
-      "driverDistanceToPickupKm": 0,
-      "driverMovementStatus": chauffeur
-          ? "Chauffeur driver arrived. Please hand over car key when ready."
-          : "Driver arrived at pickup",
-      "customerNotice": chauffeur
-          ? "Your GoRide Chauffeur driver has arrived. Car plate is added only after key handover."
-          : "Driver has arrived. You have 5 free waiting minutes. Extra charges apply after 5 minutes.",
+      "status": "rejected",
+      "rejectedBy": driverId,
+      "targetDriverId": "",
+      "rejectedAt": FieldValue.serverTimestamp(),
+      "customerNotice":
+          "Driver rejected request. GoRide is searching another nearby driver.",
+      "driverMovementStatus": "Searching another nearby driver",
     });
   }
 
-  Future<void> addCustomerCarPlate(String requestId) async {
-    plateController.clear();
-
-    await showDialog(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text("Add Customer Car Plate"),
-          content: TextField(
-            controller: plateController,
-            textCapitalization: TextCapitalization.characters,
-            decoration: const InputDecoration(
-              labelText: "Example: KDA 123A",
-              border: OutlineInputBorder(),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text("Cancel"),
-            ),
-            ElevatedButton(
-              onPressed: () async {
-                final plate = plateController.text.trim().toUpperCase();
-                if (plate.isEmpty) return;
-
-                await FirebaseFirestore.instance
-                    .collection("ride_requests")
-                    .doc(requestId)
-                    .update({
-                      "customerCarPlate": plate,
-                      "carPlateAddedByDriver": true,
-                      "plateAddedAt": FieldValue.serverTimestamp(),
-                      "customerNotice":
-                          "Driver added your car plate after arrival and key handover.",
-                    });
-
-                if (dialogContext.mounted) Navigator.pop(dialogContext);
-              },
-              child: const Text("Save"),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  Future<void> confirmKeyReceived(String requestId) async {
+  Future<void> markArrived(String requestId, Map<String, dynamic> ride) async {
     await FirebaseFirestore.instance
         .collection("ride_requests")
         .doc(requestId)
         .update({
-          "keyReceived": true,
-          "keyReceivedAt": FieldValue.serverTimestamp(),
-          "customerNotice":
-              "Driver confirmed key received. Chauffeur job can now start.",
-          "driverMovementStatus": "Customer key received",
-        });
-
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text("Key received confirmed")));
+      "status": "arrived",
+      "arrivedAt": FieldValue.serverTimestamp(),
+      "waitingStartedAt": FieldValue.serverTimestamp(),
+      "driverEtaMinutes": 0,
+      "driverDistanceToPickupKm": 0,
+      "driverMovementStatus": "Driver arrived at pickup",
+      "customerNotice":
+          "Driver has arrived. You have 5 free waiting minutes.",
+    });
   }
 
-  Future<void> startTrip(String requestId, Map<String, dynamic> ride) async {
-    final bool chauffeur = isChauffeurRide(ride);
-
+  Future<void> startTrip(String requestId) async {
     await FirebaseFirestore.instance
         .collection("ride_requests")
         .doc(requestId)
         .update({
-          "status": "in_progress",
-          "tripStartedAt": FieldValue.serverTimestamp(),
-          "chauffeurStartedAt": chauffeur ? FieldValue.serverTimestamp() : null,
-          "driverMovementStatus": chauffeur
-              ? "Chauffeur job is in progress"
-              : "Trip is in progress",
-          "customerNotice": chauffeur
-              ? "Your Chauffeur job has started. GoRide is calculating time automatically."
-              : "Your trip has started.",
-        });
-  }
-
-  Future<void> addParking(String requestId, Map<String, dynamic> ride) async {
-    if (isChauffeurRide(ride)) return;
-
-    final double currentParking = toDouble(ride["parkingFee"]);
-
-    await FirebaseFirestore.instance
-        .collection("ride_requests")
-        .doc(requestId)
-        .update({
-          "parkingFee": currentParking + 100,
-          "customerNotice": "Parking fee has been added to the trip.",
-        });
-  }
-
-  Future<void> addToll(String requestId, Map<String, dynamic> ride) async {
-    if (isChauffeurRide(ride)) return;
-
-    final double currentToll = toDouble(ride["tollFee"]);
-
-    await FirebaseFirestore.instance
-        .collection("ride_requests")
-        .doc(requestId)
-        .update({
-          "tollFee": currentToll + 100,
-          "customerNotice": "Toll fee has been added to the trip.",
-        });
-  }
-
-  Future<void> addDeadMileage(
-    String requestId,
-    Map<String, dynamic> ride,
-  ) async {
-    if (isChauffeurRide(ride)) return;
-
-    final double currentDeadMileage = toDouble(ride["deadMileageFee"]);
-
-    await FirebaseFirestore.instance
-        .collection("ride_requests")
-        .doc(requestId)
-        .update({
-          "deadMileageFee": currentDeadMileage + 100,
-          "customerNotice": "Dead mileage fee has been added to the trip.",
-        });
-  }
-
-  double calculateChauffeurFinalFare(Map<String, dynamic> ride) {
-    final double baseFare = toDouble(ride["originalFare"] ?? ride["fare"]);
-    final String packageName = ride["selectedVehicleCategory"] ?? "";
-
-    if (packageName == "Chauffeur - 1 Hour") {
-      final Timestamp? startedAt = ride["chauffeurStartedAt"];
-      if (startedAt == null) return baseFare;
-
-      final int totalMinutes = DateTime.now()
-          .difference(startedAt.toDate())
-          .inMinutes;
-
-      if (totalMinutes <= 60) return baseFare;
-
-      final int extraMinutes = totalMinutes - 60;
-      final double perMinuteRate = baseFare / 60;
-
-      return baseFare + (extraMinutes * perMinuteRate);
-    }
-
-    return baseFare;
+      "status": "in_progress",
+      "tripStartedAt": FieldValue.serverTimestamp(),
+      "driverMovementStatus": "Trip is in progress",
+      "customerNotice": "Your trip has started.",
+    });
   }
 
   Future<void> completeTrip(String requestId, Map<String, dynamic> ride) async {
-    final bool chauffeur = isChauffeurRide(ride);
     final String paymentMethod = ride["paymentMethod"] ?? "Cash";
 
-    double baseFare = toDouble(ride["originalFare"] ?? ride["fare"]);
-    double parkingFee = 0;
-    double tollFee = 0;
-    double deadMileageFee = 0;
-    double waitingFee = 0;
+    final double confirmedFare = toDouble(
+      ride["confirmedFare"] ??
+          ride["customerPayableFare"] ??
+          ride["estimatedFareVisibleToCustomer"],
+    );
+
+    final Timestamp? waitingStartedAt = ride["waitingStartedAt"];
     int waitingMinutes = 0;
-    int chargeableWaitingMinutes = 0;
 
-    if (chauffeur) {
-      baseFare = calculateChauffeurFinalFare(ride);
-    } else {
-      parkingFee = toDouble(ride["parkingFee"]);
-      tollFee = toDouble(ride["tollFee"]);
-      deadMileageFee = toDouble(ride["deadMileageFee"]);
-
-      final Timestamp? waitingStartedAt = ride["waitingStartedAt"];
-
-      if (waitingStartedAt != null) {
-        waitingMinutes = DateTime.now()
-            .difference(waitingStartedAt.toDate())
-            .inMinutes;
-      }
-
-      chargeableWaitingMinutes = waitingMinutes > freeWaitingMinutes
-          ? waitingMinutes - freeWaitingMinutes
-          : 0;
-
-      waitingFee = chargeableWaitingMinutes * waitingChargePerMinute;
+    if (waitingStartedAt != null) {
+      waitingMinutes =
+          DateTime.now().difference(waitingStartedAt.toDate()).inMinutes;
     }
 
-    final double originalTotal =
-        baseFare + parkingFee + tollFee + deadMileageFee + waitingFee;
+    final int chargeableWaitingMinutes =
+        waitingMinutes > freeWaitingMinutes ? waitingMinutes - freeWaitingMinutes : 0;
 
-    final double discountAmount = toDouble(ride["customerDiscountAmount"]);
-    final double customerPays = originalTotal - discountAmount;
+    final double waitingFee = chargeableWaitingMinutes * waitingChargePerMinute;
+    final double finalFare = confirmedFare + waitingFee;
 
-    final double commissionAmount = originalTotal * commissionPercent / 100;
-    final double driverNetEarnings = originalTotal - commissionAmount;
+    final double commissionAmount = finalFare * commissionPercent / 100;
+    final double driverNetEarnings = finalFare - commissionAmount;
 
     double newWalletBalance = walletBalance;
     double newCommissionDue = commissionDue;
@@ -349,32 +236,24 @@ class _DriverHomeState extends State<DriverHome> {
         .collection("ride_requests")
         .doc(requestId)
         .update({
-          "status": "completed",
-          "completedAt": FieldValue.serverTimestamp(),
-          "isChauffeur": chauffeur,
-          "baseTripFare": baseFare,
-          "waitingMinutes": waitingMinutes,
-          "chargeableWaitingMinutes": chargeableWaitingMinutes,
-          "waitingFee": waitingFee,
-          "parkingFee": parkingFee,
-          "tollFee": tollFee,
-          "deadMileageFee": deadMileageFee,
-          "originalTotalFare": originalTotal,
-          "customerDiscountAmount": discountAmount,
-          "customerPayableFare": customerPays,
-          "gorideCoversDiscount": discountAmount,
-          "appCommissionPercent": commissionPercent,
-          "appCommissionAmount": commissionAmount,
-          "driverNetEarnings": driverNetEarnings,
-          "paymentMethod": paymentMethod,
-          "driverWalletBalanceAfterTrip": newWalletBalance,
-          "driverCommissionDueAfterTrip": newCommissionDue,
-          "driverMovementStatus": chauffeur
-              ? "Chauffeur job completed"
-              : "Trip completed",
-          "customerNotice":
-              "Trip completed. Final amount: KES ${customerPays.toStringAsFixed(0)}",
-        });
+      "status": "completed",
+      "completedAt": FieldValue.serverTimestamp(),
+      "waitingMinutes": waitingMinutes,
+      "chargeableWaitingMinutes": chargeableWaitingMinutes,
+      "waitingFee": waitingFee,
+      "originalTotalFare": finalFare,
+      "customerPayableFare": finalFare,
+      "confirmedFare": finalFare,
+      "totalFare": finalFare,
+      "appCommissionPercent": commissionPercent,
+      "appCommissionAmount": commissionAmount,
+      "driverNetEarnings": driverNetEarnings,
+      "driverWalletBalanceAfterTrip": newWalletBalance,
+      "driverCommissionDueAfterTrip": newCommissionDue,
+      "driverMovementStatus": "Trip completed",
+      "customerNotice":
+          "Trip completed. Final amount: KES ${finalFare.toStringAsFixed(0)}",
+    });
 
     await FirebaseFirestore.instance.collection("drivers").doc(driverId).set({
       "walletBalance": newWalletBalance,
@@ -393,99 +272,12 @@ class _DriverHomeState extends State<DriverHome> {
       suspended = shouldSuspend;
       if (shouldSuspend) isOnline = false;
     });
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text("Trip completed. You can now rate/comment customer."),
-      ),
-    );
-  }
-
-  Future<void> rateCustomer(String requestId) async {
-    customerCommentController.clear();
-    int rating = 5;
-    bool paymentIssue = false;
-
-    await showDialog(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text("Rate Customer"),
-          content: StatefulBuilder(
-            builder: (context, setDialogState) {
-              return Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  DropdownButtonFormField<int>(
-                    initialValue: rating,
-                    decoration: const InputDecoration(
-                      labelText: "Rating",
-                      border: OutlineInputBorder(),
-                    ),
-                    items: const [
-                      DropdownMenuItem(value: 5, child: Text("5 Stars")),
-                      DropdownMenuItem(value: 4, child: Text("4 Stars")),
-                      DropdownMenuItem(value: 3, child: Text("3 Stars")),
-                      DropdownMenuItem(value: 2, child: Text("2 Stars")),
-                      DropdownMenuItem(value: 1, child: Text("1 Star")),
-                    ],
-                    onChanged: (value) {
-                      setDialogState(() => rating = value ?? 5);
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  CheckboxListTile(
-                    value: paymentIssue,
-                    title: const Text("Payment issue / failed to pay"),
-                    onChanged: (value) {
-                      setDialogState(() => paymentIssue = value ?? false);
-                    },
-                  ),
-                  TextField(
-                    controller: customerCommentController,
-                    maxLines: 3,
-                    decoration: const InputDecoration(
-                      labelText: "Comment about customer",
-                      hintText: "Positive or negative comment",
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                ],
-              );
-            },
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text("Cancel"),
-            ),
-            ElevatedButton(
-              onPressed: () async {
-                await FirebaseFirestore.instance
-                    .collection("ride_requests")
-                    .doc(requestId)
-                    .update({
-                      "driverRatingToCustomer": rating,
-                      "driverCommentToCustomer": customerCommentController.text
-                          .trim(),
-                      "customerPaymentIssueReportedByDriver": paymentIssue,
-                      "driverRatedCustomerAt": FieldValue.serverTimestamp(),
-                    });
-
-                if (dialogContext.mounted) Navigator.pop(dialogContext);
-              },
-              child: const Text("Submit"),
-            ),
-          ],
-        );
-      },
-    );
   }
 
   void callCustomer(String phone) {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text("Call customer: $phone")));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text("Call customer: $phone")),
+    );
   }
 
   void openSOS() {
@@ -500,9 +292,7 @@ class _DriverHomeState extends State<DriverHome> {
   void withdrawMoney() {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text(
-          "Withdrawal request sent. Auto payout also runs Saturday midnight.",
-        ),
+        content: Text("Withdrawal request sent."),
       ),
     );
   }
@@ -522,10 +312,6 @@ class _DriverHomeState extends State<DriverHome> {
       "online": false,
       "updatedAt": FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
-
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text("GoRide balance cleared.")));
   }
 
   @override
@@ -549,29 +335,24 @@ class _DriverHomeState extends State<DriverHome> {
       color: suspended
           ? Colors.black
           : isOnline
-          ? Colors.green
-          : Colors.red,
+              ? Colors.green
+              : Colors.red,
       child: Column(
         children: [
           Text(
             suspended
                 ? "SUSPENDED"
                 : isOnline
-                ? "YOU ARE ONLINE"
-                : "YOU ARE OFFLINE",
+                    ? "YOU ARE ONLINE"
+                    : "YOU ARE OFFLINE",
             style: const TextStyle(
               color: Colors.white,
               fontSize: 19,
               fontWeight: FontWeight.bold,
             ),
           ),
-          const SizedBox(height: 6),
           Text(
-            suspended
-                ? "Pay GoRide balance to receive requests"
-                : isOnline
-                ? "Ready to receive ride and chauffeur requests"
-                : "Go online to receive rides",
+            "Driver Type: $driverType",
             style: const TextStyle(color: Colors.white),
           ),
           const SizedBox(height: 10),
@@ -582,9 +363,7 @@ class _DriverHomeState extends State<DriverHome> {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: isOnline ? Colors.red : Colors.green,
                   ),
-                  onPressed: loading
-                      ? null
-                      : () => updateDriverStatus(!isOnline),
+                  onPressed: loading ? null : () => updateDriverStatus(!isOnline),
                   child: Text(
                     isOnline ? "GO OFFLINE" : "GO ONLINE",
                     style: const TextStyle(color: Colors.white),
@@ -631,9 +410,7 @@ class _DriverHomeState extends State<DriverHome> {
                 const SizedBox(width: 8),
                 Expanded(
                   child: ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.orange,
-                    ),
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
                     onPressed: payGoRideBalance,
                     child: const Text(
                       "Pay Balance",
@@ -642,12 +419,6 @@ class _DriverHomeState extends State<DriverHome> {
                   ),
                 ),
               ],
-            ),
-            const SizedBox(height: 6),
-            const Text(
-              "Card/Binance earnings can be withdrawn anytime. Auto payout: Saturday midnight.",
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 11, color: Colors.black54),
             ),
           ],
         ),
@@ -661,7 +432,7 @@ class _DriverHomeState extends State<DriverHome> {
         child: Text(
           suspended
               ? "Suspended: Pay GoRide balance first."
-              : "You are offline.\nGo online to receive rides.",
+              : "You are offline.\nGo online to receive matching request.",
           textAlign: TextAlign.center,
           style: const TextStyle(fontSize: 16),
         ),
@@ -679,43 +450,39 @@ class _DriverHomeState extends State<DriverHome> {
           return const Center(child: CircularProgressIndicator());
         }
 
-        final activeDocs = snapshot.data!.docs.where((doc) {
+        final docs = snapshot.data!.docs.where((doc) {
           final ride = doc.data() as Map<String, dynamic>;
 
           final String status = ride["status"] ?? "";
+          final String targetDriverId = ride["targetDriverId"] ?? "";
           final String assignedDriverId = ride["assignedDriverId"] ?? "";
           final String rideDriverId = ride["driverId"] ?? "";
 
-          final bool pendingForAll = status == "pending";
-          final bool mine =
-              assignedDriverId == driverId || rideDriverId == driverId;
-
-          final bool activeStatus =
-              status == "pending" ||
-              status == "accepted" ||
-              status == "arrived" ||
-              status == "in_progress";
-
-          return pendingForAll || (mine && activeStatus);
-        }).toList();
-
-        final completedDocs = snapshot.data!.docs.where((doc) {
-          final ride = doc.data() as Map<String, dynamic>;
-
-          final String status = ride["status"] ?? "";
-          final String assignedDriverId = ride["assignedDriverId"] ?? "";
-          final String rideDriverId = ride["driverId"] ?? "";
+          final bool targetedToMe =
+              status == "pending" &&
+              targetDriverId == driverId &&
+              canDriverReceive(ride);
 
           final bool mine =
               assignedDriverId == driverId || rideDriverId == driverId;
 
-          return mine && status == "completed";
-        }).toList();
+          final bool activeMine = mine &&
+              (status == "accepted" ||
+                  status == "arrived" ||
+                  status == "in_progress" ||
+                  status == "completed" ||
+                  status == "cancelled_by_customer");
 
-        final docs = activeDocs.isNotEmpty ? activeDocs : completedDocs;
+          return targetedToMe || activeMine;
+        }).toList();
 
         if (docs.isEmpty) {
-          return const Center(child: Text("No ride request yet"));
+          return Center(
+            child: Text(
+              "No $driverType request assigned yet.\nNearest matching customer request will appear here.",
+              textAlign: TextAlign.center,
+            ),
+          );
         }
 
         final doc = docs.first;
@@ -731,27 +498,44 @@ class _DriverHomeState extends State<DriverHome> {
     final String pickup = ride["pickup"] ?? "";
     final String destination = ride["destination"] ?? "";
     final String category = ride["selectedVehicleCategory"] ?? "Ride";
+    final String serviceGroup = ride["serviceGroup"] ?? "";
+    final String requestedDriverType = ride["requestedDriverType"] ?? "";
     final String payment = ride["paymentMethod"] ?? "Cash";
     final String customerName = ride["customerName"] ?? "Customer";
     final String customerPhone = ride["customerPhone"] ?? "0700000000";
-    final bool isEV = ride["isEV"] == true;
-    final bool chauffeur = isChauffeurRide(ride);
-    final bool keyReceived = ride["keyReceived"] == true;
-    final bool plateAdded = ride["carPlateAddedByDriver"] == true;
-    final String plate = ride["customerCarPlate"] ?? "";
-    final bool acceptedOrLater = status != "pending" && status != "rejected";
+
+    final bool acceptedOrLater =
+        status != "pending" && status != "rejected" && status != "cancelled_by_customer";
+
+    final bool cancelledByCustomer = status == "cancelled_by_customer";
+
+    final double estimatedFare = toDouble(
+      ride["estimatedFareVisibleToCustomer"] ??
+          ride["estimatedFareHiddenFromCustomer"],
+    );
+
+    final double confirmedFare = toDouble(
+      ride["confirmedFare"] ?? ride["customerPayableFare"] ?? ride["totalFare"],
+    );
+
+    final int serviceEta = toDouble(ride["serviceEtaMinutes"]).toInt();
+    final int capacity = toDouble(ride["serviceCapacity"]).toInt();
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(10),
       child: Card(
-        color: chauffeur ? Colors.green : Colors.orange,
+        color: cancelledByCustomer
+            ? Colors.grey
+            : acceptedOrLater
+                ? Colors.green
+                : Colors.orange,
         child: Padding(
           padding: const EdgeInsets.all(12),
           child: Column(
             children: [
               Text(
-                chauffeur
-                    ? "${status.toUpperCase()} CHAUFFEUR JOB"
+                cancelledByCustomer
+                    ? "CUSTOMER CANCELLED"
                     : "${status.toUpperCase()} REQUEST",
                 style: const TextStyle(
                   color: Colors.white,
@@ -775,52 +559,42 @@ class _DriverHomeState extends State<DriverHome> {
 
               rideLine("Pickup", pickup),
               rideLine("Destination", destination),
-              rideLine("Service", isEV ? "⚡ $category" : category),
+              rideLine("Group", serviceGroup),
+              rideLine("Service", category),
+              rideLine("Requested Type", requestedDriverType),
               rideLine("Payment", payment),
-
-              if (chauffeur) rideLine("Privacy", "Plate hidden until arrival"),
-              if (plateAdded) rideLine("Car Plate", plate),
+              rideLine("ETA", "$serviceEta min"),
+              rideLine("Capacity", capacity == 0 ? "Own car" : "$capacity passengers"),
 
               const Divider(color: Colors.white),
 
-              rideLine(
-                "Original Fare",
-                "KES ${toDouble(ride["originalFare"] ?? ride["fare"]).toStringAsFixed(0)}",
-              ),
-              rideLine(
-                "Customer Discount",
-                "KES ${toDouble(ride["customerDiscountAmount"]).toStringAsFixed(0)}",
-              ),
-              rideLine(
-                "Customer Pays",
-                "KES ${toDouble(ride["customerPayableFare"]).toStringAsFixed(0)}",
-              ),
-              rideLine(
-                "GoRide Covers",
-                "KES ${toDouble(ride["gorideCoversDiscount"]).toStringAsFixed(0)}",
-              ),
+              if (!acceptedOrLater)
+                rideLine("Estimated Fare", "KES ${estimatedFare.toStringAsFixed(0)}"),
 
-              if (status == "completed") ...[
+              if (acceptedOrLater)
+                rideLine("Confirmed Fare", "KES ${confirmedFare.toStringAsFixed(0)}"),
+
+              if (ride["isParcel"] == true) ...[
                 const Divider(color: Colors.white),
-                rideLine(
-                  "Final Total",
-                  "KES ${toDouble(ride["originalTotalFare"]).toStringAsFixed(0)}",
-                ),
-                rideLine(
-                  "Commission",
-                  "KES ${toDouble(ride["appCommissionAmount"]).toStringAsFixed(0)}",
-                ),
-                rideLine(
-                  "Driver Net",
-                  "KES ${toDouble(ride["driverNetEarnings"]).toStringAsFixed(0)}",
-                ),
+                rideLine("Parcel", ride["parcelAction"] ?? ""),
+                rideLine("Transport", ride["parcelTransport"] ?? ""),
+                rideLine("Sender", ride["senderName"] ?? ""),
+                rideLine("Sender Phone", ride["senderPhone"] ?? ""),
+                rideLine("Receiver", ride["receiverName"] ?? ""),
+                rideLine("Receiver Phone", ride["receiverPhone"] ?? ""),
+                rideLine("Package", ride["parcelDescription"] ?? ""),
+                rideLine("Pickup Notes", ride["pickupNotes"] ?? ""),
+                rideLine("Drop-off Notes", ride["dropOffNotes"] ?? ""),
               ],
+
+              if (cancelledByCustomer)
+                rideLine("Reason", ride["cancelReason"] ?? ""),
 
               const SizedBox(height: 10),
 
               if (status == "pending")
                 buttonRow(
-                  chauffeur ? "ACCEPT JOB" : "ACCEPT",
+                  "ACCEPT",
                   Colors.green,
                   () => acceptRide(requestId, ride),
                   "REJECT",
@@ -830,74 +604,24 @@ class _DriverHomeState extends State<DriverHome> {
 
               if (status == "accepted")
                 fullButton(
-                  chauffeur ? "ARRIVED AT CUSTOMER AREA" : "ARRIVED AT PICKUP",
+                  "ARRIVED AT PICKUP",
                   Colors.green,
                   () => markArrived(requestId, ride),
                 ),
 
-              if (chauffeur && status == "arrived") ...[
-                if (!plateAdded)
-                  fullButton(
-                    "ADD CUSTOMER CAR PLATE",
-                    Colors.blue,
-                    () => addCustomerCarPlate(requestId),
-                  ),
-                if (plateAdded && !keyReceived)
-                  fullButton(
-                    "CONFIRM KEY RECEIVED",
-                    Colors.deepPurple,
-                    () => confirmKeyReceived(requestId),
-                  ),
-                if (plateAdded && keyReceived)
-                  fullButton(
-                    "START CHAUFFEUR JOB",
-                    Colors.blue,
-                    () => startTrip(requestId, ride),
-                  ),
-              ],
-
-              if (!chauffeur && status == "arrived")
+              if (status == "arrived")
                 fullButton(
                   "START TRIP",
                   Colors.blue,
-                  () => startTrip(requestId, ride),
+                  () => startTrip(requestId),
                 ),
 
-              if (status == "in_progress") ...[
-                if (!chauffeur) ...[
-                  buttonRow(
-                    "PARKING",
-                    Colors.purple,
-                    () => addParking(requestId, ride),
-                    "TOLL",
-                    Colors.brown,
-                    () => addToll(requestId, ride),
-                  ),
-                  const SizedBox(height: 8),
-                  fullButton(
-                    "ADD DEAD MILEAGE",
-                    Colors.deepOrange,
-                    () => addDeadMileage(requestId, ride),
-                  ),
-                  const SizedBox(height: 8),
-                ],
+              if (status == "in_progress")
                 fullButton(
-                  chauffeur
-                      ? "END CHAUFFEUR JOB & CALCULATE TIME"
-                      : "END TRIP & CALCULATE FINAL FARE",
+                  "END TRIP",
                   Colors.green,
                   () => completeTrip(requestId, ride),
                 ),
-              ],
-
-              if (status == "completed") ...[
-                const SizedBox(height: 8),
-                fullButton(
-                  "RATE / COMMENT CUSTOMER",
-                  Colors.black,
-                  () => rateCustomer(requestId),
-                ),
-              ],
             ],
           ),
         ),
@@ -922,23 +646,25 @@ class _DriverHomeState extends State<DriverHome> {
   }
 
   Widget rideLine(String label, dynamic value) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Expanded(
-          child: Text(label, style: const TextStyle(color: Colors.white)),
-        ),
-        Expanded(
-          child: Text(
-            "$value",
-            textAlign: TextAlign.right,
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.bold,
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 5),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(label, style: const TextStyle(color: Colors.white)),
+          ),
+          Expanded(
+            child: Text(
+              "$value",
+              textAlign: TextAlign.right,
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+              ),
             ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
